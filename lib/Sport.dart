@@ -112,7 +112,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
                 ? "غير محددة"
                 : (e["strTVStation"] ?? "غير محددة").toString(),
           };
-        }).toList();
+        });
 
         setState(() {
           matches = parsed;
