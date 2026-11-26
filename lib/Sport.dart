@@ -34,7 +34,7 @@ class MatchesScreen extends StatefulWidget {
 class _MatchesScreenState extends State<MatchesScreen> {
   bool isLoading = true;
   bool isLive = false;
-  String bannerText = "جاري التحميل...";
+  String banner = "جاري التحميل...";
   List matches = [];
 
   final List fallbackMatches = [
@@ -65,96 +65,48 @@ class _MatchesScreenState extends State<MatchesScreen> {
   Future<void> loadMatches() async {
     setState(() {
       isLoading = true;
-      bannerText = "جاري جلب مباريات اليوم...";
+      banner = "جاري الاتصال...";
     });
 
     try {
-      final now = DateTime.now();
-      final d =
-          "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}";
-      final uri = Uri.parse(
-        "https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=$d",
+      final url = Uri.parse(
+        "https://www.thesportsdb.com/api/v1/json/3/eventsnextleague.php?id=4328",
       );
+      final res = await http.get(url).timeout(const Duration(seconds: 12));
 
-      final res = await http.get(uri).timeout(const Duration(seconds: 10));
-      if (res.statusCode == 200) {
-        final jsonData = jsonDecode(res.body);
-        final events = jsonData["events"];
+      if (res.statusCode != 200) {
+        throw "HTTP ${res.statusCode}";
+      }
 
-        if (events != null && events.isNotEmpty) {
-          final temp = [];
-          for (final ev in events) {
-            final comps = ev["competitions"];
-            if (comps == null || comps.isEmpty) continue;
-            final comp = comps[0];
-            final teams = comp["competitors"];
-            if (teams == null || teams.length < 2) continue;
+      final decoded = jsonDecode(res.body);
+      final events = decoded["events"];
+      if (events == null || events.isEmpty) {
+        throw "لا توجد مباريات قادمة";
+      }
 
-            final t1 = teams[0];
-            final t2 = teams[1];
-            final name1 = (t1["team"]?["shortDisplayName"] ??
-                    t1["team"]?["displayName"] ??
-                    "فريق 1")
-                .toString();
-            final name2 = (t2["team"]?["shortDisplayName"] ??
-                    t2["team"]?["displayName"] ??
-                    "فريق 2")
-                .toString();
-
-            final state = (comp["status"]?["type"]?["state"] ?? "").toString();
-            final detail =
-                (comp["status"]?["type"]?["shortDetail"] ?? "اليوم").toString();
-            final s1 = t1["score"]?.toString() ?? "";
-            final s2 = t2["score"]?.toString() ?? "";
-            final score = (state == "pre" || s1.isEmpty || s2.isEmpty)
-                ? "VS"
-                : "$s1 - $s2";
-
-            final league = (ev["league"]?["name"] ??
-                    jsonData["leagues"]?[0]?["name"] ??
-                    "كرة القدم")
-                .toString();
-
-            temp.add({
-              "league": league,
-              "team1": name1,
-              "team2": name2,
-              "time": detail,
-              "score": score,
-              "channel": "ESPN / مباشر",
-            });
-          }
-
-          if (temp.isNotEmpty) {
-            setState(() {
-              matches = temp;
-              isLive = true;
-              bannerText = "بيانات مباشرة (${temp.length} مباراة اليوم)";
-              isLoading = false;
-            });
-            return;
-          }
-        }
-
-        setState(() {
-          matches = fallbackMatches;
-          isLive = false;
-          bannerText = "لا توجد مباريات مباشرة لليوم — عرض احتياطي";
-          isLoading = false;
-        });
-      } else {
-        setState(() {
-          matches = fallbackMatches;
-          isLive = false;
-          bannerText = "استجابة السيرفر ${res.statusCode} — عرض احتياطي";
-          isLoading = false;
+      final temp = [];
+      for (final ev in events) {
+        temp.add({
+          "league": (ev["strLeague"] ?? "الدوري الإنجليزي").toString(),
+          "team1": (ev["strHomeTeam"] ?? "فريق 1").toString(),
+          "team2": (ev["strAwayTeam"] ?? "فريق 2").toString(),
+          "time": "${ev["dateEvent"] ?? ""} ${ev["strTime"] ?? ""}".trim(),
+          "score": "VS",
+          "channel": (ev["strTVStation"] ?? "غير محددة").toString(),
         });
       }
-    } catch (_) {
+
+      setState(() {
+        matches = temp;
+        isLive = true;
+        banner = "مباشر من API (${temp.length} مباراة)";
+        isLoading = false;
+      });
+    } catch (e) {
       setState(() {
         matches = fallbackMatches;
         isLive = false;
-        bannerText = "تعذر الاتصال المباشر — عرض احتياطي";
+        banner = "احتياطي — السبب: $e";
         isLoading = false;
       });
     }
@@ -166,10 +118,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
       appBar: AppBar(
         title: const Text("مباريات اليوم"),
         actions: [
-          IconButton(
-            onPressed: loadMatches,
-            icon: const Icon(Icons.refresh),
-          ),
+          IconButton(onPressed: loadMatches, icon: const Icon(Icons.refresh)),
         ],
       ),
       body: isLoading
@@ -194,7 +143,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
                       ),
                     ),
                     child: Text(
-                      bannerText,
+                      banner,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         color: isLive ? Colors.greenAccent : Colors.amber,
@@ -229,10 +178,12 @@ class _MatchesScreenState extends State<MatchesScreen> {
                                     fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            Text(
-                              "${item["score"]}\n${item["time"]}",
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 14),
+                            Expanded(
+                              child: Text(
+                                "${item["score"]}\n${item["time"]}",
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 13),
+                              ),
                             ),
                             Expanded(
                               child: Text(
