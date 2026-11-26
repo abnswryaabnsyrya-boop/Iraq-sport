@@ -37,7 +37,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
   String? statusNote;
   List> matches = [];
 
-  static final List> _fallbackMatches = [
+  final List> _fallbackMatches = [
     {
       "league": "دوري نجوم العراق",
       "team1": "الزوراء",
@@ -81,74 +81,48 @@ class _MatchesScreenState extends State<MatchesScreen> {
 
     final now = DateTime.now();
     final dateStr =
-        "${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
 
-    final url = Uri.parse(
+    final uri = Uri.parse(
       "https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=$dateStr&s=Soccer",
     );
 
     try {
-      final response =
-          await http.get(url).timeout(const Duration(seconds: 8));
+      final res = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final events = data is Map ? data["events"] : null;
 
-      if (response.statusCode == 200) {
-        final decoded = jsonDecode(response.body);
-        final rawEvents =
-            decoded is Map<String, dynamic> ? decoded["events"] : null;
+        if (events is List && events.isNotEmpty) {
+          final list = >[];
+          for (final item in events) {
+            if (item is Map) {
+              final hScore = item["intHomeScore"]?.toString();
+              final aScore = item["intAwayScore"]?.toString();
+              final hasScore = hScore != null &&
+                  aScore != null &&
+                  hScore != "null" &&
+                  aScore != "null";
+              final rawTime = (item["strTime"] ?? "").toString();
+              final shortTime =
+                  rawTime.length >= 5 ? rawTime.substring(0, 5) : rawTime;
+              final tv = (item["strTVStation"] ?? "").toString().trim();
 
-        if (rawEvents is List && rawEvents.isNotEmpty) {
-          final List> parsedMatches = [];
-
-          for (final item in rawEvents) {
-            if (item is! Map) continue;
-            final e = Map<String, dynamic>.from(item);
-
-            final home = (e["strHomeTeam"] ?? "فريق 1").toString();
-            final away = (e["strAwayTeam"] ?? "فريق 2").toString();
-            final league = (e["strLeague"] ?? "بطولة").toString();
-            final time = (e["strTime"] ?? "").toString();
-            final shortTime = time.length >= 5 ? time.substring(0, 5) : time;
-
-            final homeScore = e["intHomeScore"]?.toString();
-            final awayScore = e["intAwayScore"]?.toString();
-            final statusRaw = (e["strStatus"] ?? "").toString();
-
-            final hasScore = homeScore != null &&
-                awayScore != null &&
-                homeScore != "null" &&
-                awayScore != "null";
-
-            final scoreText = hasScore ? "$homeScore - $awayScore" : "VS";
-            final isLive = statusRaw.toLowerCase().contains("live") ||
-                statusRaw.contains("1H") ||
-                statusRaw.contains("2H");
-
-            String statusLabel = "لم تبدأ";
-            if (isLive) {
-              statusLabel = "جارية";
-            } else if (statusRaw.toLowerCase().contains("match finished") ||
-                statusRaw == "FT" ||
-                hasScore) {
-              statusLabel = "انتهت";
+              list.add({
+                "league": (item["strLeague"] ?? "بطولة").toString(),
+                "team1": (item["strHomeTeam"] ?? "فريق 1").toString(),
+                "team2": (item["strAwayTeam"] ?? "فريق 2").toString(),
+                "time": shortTime.isEmpty ? "اليوم" : shortTime,
+                "status": hasScore ? "انتهت" : "لم تبدأ",
+                "score": hasScore ? "$hScore - $aScore" : "VS",
+                "channel": (tv.isEmpty || tv == "null") ? "غير محددة" : tv,
+              });
             }
-
-            final tvRaw = (e["strTVStation"] ?? "").toString().trim();
-
-            parsedMatches.add({
-              "league": league,
-              "team1": home,
-              "team2": away,
-              "time": shortTime.isEmpty ? statusLabel : shortTime,
-              "status": statusLabel,
-              "score": scoreText,
-              "channel": tvRaw.isEmpty || tvRaw == "null" ? "غير محددة" : tvRaw,
-            });
           }
 
-          if (parsedMatches.isNotEmpty) {
+          if (list.isNotEmpty) {
             setState(() {
-              matches = parsedMatches;
-              statusNote = null;
+              matches = list;
               isLoading = false;
             });
             return;
@@ -157,13 +131,13 @@ class _MatchesScreenState extends State<MatchesScreen> {
       }
 
       setState(() {
-        matches = List.from(_fallbackMatches);
-        statusNote = "عرض قائمة احتياطية (المصدر الخارجي لم يرجع مباريات اليوم)";
+        matches = _fallbackMatches;
+        statusNote = "عرض قائمة احتياطية (لا توجد مباريات مباشرة حالياً)";
         isLoading = false;
       });
     } catch (_) {
       setState(() {
-        matches = List.from(_fallbackMatches);
+        matches = _fallbackMatches;
         statusNote = "تعذر الوصول للمصدر المباشر، تم عرض قائمة احتياطية";
         isLoading = false;
       });
@@ -208,25 +182,19 @@ class _MatchesScreenState extends State<MatchesScreen> {
                   );
                 }
 
-                final match = matches[statusNote != null ? index - 1 : index];
-                final isLive = match["status"] == "جارية";
-
+                final m = matches[statusNote != null ? index - 1 : index];
                 return Card(
                   color: const Color(0xFF1E1E1E),
                   margin: const EdgeInsets.only(bottom: 12),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(
-                      color: isLive ? Colors.green : Colors.transparent,
-                      width: 1.5,
-                    ),
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Column(
                       children: [
                         Text(
-                          match["league"]!,
+                          m["league"]!,
                           style: const TextStyle(
                               color: Colors.amber, fontSize: 12),
                         ),
@@ -236,7 +204,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
                           children: [
                             Expanded(
                               child: Text(
-                                match["team1"]!,
+                                m["team1"]!,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                     fontSize: 16, fontWeight: FontWeight.bold),
@@ -246,38 +214,28 @@ class _MatchesScreenState extends State<MatchesScreen> {
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 12, vertical: 6),
                               decoration: BoxDecoration(
-                                color: isLive
-                                    ? Colors.green.withOpacity(0.2)
-                                    : Colors.black26,
+                                color: Colors.black26,
                                 borderRadius: BorderRadius.circular(8),
                               ),
                               child: Column(
                                 children: [
                                   Text(
-                                    match["score"]!,
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: isLive
-                                          ? Colors.greenAccent
-                                          : Colors.white,
-                                    ),
+                                    m["score"]!,
+                                    style: const TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold),
                                   ),
                                   Text(
-                                    match["time"]!,
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: isLive
-                                          ? Colors.greenAccent
-                                          : Colors.grey,
-                                    ),
+                                    m["time"]!,
+                                    style: const TextStyle(
+                                        fontSize: 11, color: Colors.grey),
                                   ),
                                 ],
                               ),
                             ),
                             Expanded(
                               child: Text(
-                                match["team2"]!,
+                                m["team2"]!,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                     fontSize: 16, fontWeight: FontWeight.bold),
@@ -287,7 +245,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
                         ),
                         const Divider(color: Colors.white12, height: 20),
                         Text(
-                          "القناة الناقلة: ${match["channel"]}",
+                          "القناة الناقلة: ${m["channel"]}",
                           style: const TextStyle(
                               color: Colors.white60, fontSize: 12),
                         ),
