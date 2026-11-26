@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -57,10 +58,20 @@ class _MatchesScreenState extends State<MatchesScreen> {
     );
 
     try {
-      final response = await http.get(url);
+      final response =
+          await http.get(url).timeout(const Duration(seconds: 15));
+
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final events = data["events"];
+        final decoded = jsonDecode(response.body);
+        if (decoded is! Map<String, dynamic>) {
+          setState(() {
+            errorMessage = "صيغة البيانات من المصدر غير متوقعة";
+            isLoading = false;
+          });
+          return;
+        }
+
+        final events = decoded["events"];
 
         if (events == null || events is! List || events.isEmpty) {
           setState(() {
@@ -101,6 +112,8 @@ class _MatchesScreenState extends State<MatchesScreen> {
             statusLabel = "انتهت";
           }
 
+          final tvRaw = (e["strTVStation"] ?? "").toString().trim();
+
           return {
             "league": league,
             "team1": home,
@@ -108,9 +121,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
             "time": shortTime.isEmpty ? statusLabel : shortTime,
             "status": statusLabel,
             "score": scoreText,
-            "channel": (e["strTVStation"] ?? "غير محددة").toString().isEmpty
-                ? "غير محددة"
-                : (e["strTVStation"] ?? "غير محددة").toString(),
+            "channel": tvRaw.isEmpty || tvRaw == "null" ? "غير محددة" : tvRaw,
           };
         }).toList();
 
@@ -120,13 +131,23 @@ class _MatchesScreenState extends State<MatchesScreen> {
         });
       } else {
         setState(() {
-          errorMessage = "تعذر جلب البيانات (${response.statusCode})";
+          errorMessage = "تعذر جلب البيانات (رمز الحالة: ${response.statusCode})";
           isLoading = false;
         });
       }
-    } catch (_) {
+    } on TimeoutException {
       setState(() {
-        errorMessage = "تحقق من اتصال الإنترنت ثم أعد المحاولة";
+        errorMessage = "انتهت مهلة الاتصال بالمصدر، أعد المحاولة";
+        isLoading = false;
+      });
+    } on FormatException {
+      setState(() {
+        errorMessage = "المصدر أرجع بيانات غير صالحة (ليس JSON)";
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        errorMessage = "تعذر الاتصال أو جلب البيانات: $e";
         isLoading = false;
       });
     }
@@ -151,16 +172,22 @@ class _MatchesScreenState extends State<MatchesScreen> {
           ? const Center(child: CircularProgressIndicator())
           : errorMessage != null
               ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(errorMessage!),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: fetchTodayMatches,
-                        child: const Text("إعادة المحاولة"),
-                      ),
-                    ],
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          errorMessage!,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: fetchTodayMatches,
+                          child: const Text("إعادة المحاولة"),
+                        ),
+                      ],
+                    ),
                   ),
                 )
               : matches.isEmpty
