@@ -34,12 +34,13 @@ class MatchesScreen extends StatefulWidget {
 
 class _MatchesScreenState extends State<MatchesScreen> {
   bool isLoading = true;
-  String? errorMessage;
-  List matches = [];
+  String statusBanner = "جاري التحميل...";
+  bool isLiveSource = false;
+  List> matches = [];
 
-  final List fallbackMatches = [
+  final List> _fallbackMatches = [
     {
-      "league": "دوري نجوم العراق",
+      "league": "دوري نجوم العراق (احتياطي)",
       "team1": "الزوراء",
       "team2": "الشرطة",
       "time": "19:30",
@@ -47,7 +48,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
       "channel": "العراقية الرياضية",
     },
     {
-      "league": "الدوري الإنجليزي الممتاز",
+      "league": "الدوري الإنجليزي الممتاز (احتياطي)",
       "team1": "أرسنال",
       "team2": "ليفربول",
       "time": "21:00",
@@ -65,52 +66,127 @@ class _MatchesScreenState extends State<MatchesScreen> {
   Future<void> loadMatches() async {
     setState(() {
       isLoading = true;
-      errorMessage = null;
+      statusBanner = "جاري جلب المباريات المباشرة...";
     });
 
     try {
       final now = DateTime.now();
-      final date =
-          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final yyyymmdd =
+          "${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}";
+
       final url = Uri.parse(
-        "https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=$date&s=Soccer",
+        "https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=$yyyymmdd",
       );
 
-      final response = await http.get(url).timeout(const Duration(seconds: 8));
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        final events = decoded["events"];
-        if (events is List && events.isNotEmpty) {
-          setState(() {
-            matches = events.map((e) {
-              final h = e["intHomeScore"]?.toString();
-              final a = e["intAwayScore"]?.toString();
-              final hasScore = h != null && a != null && h != "null" && a != "null";
-              final t = (e["strTime"] ?? "").toString();
-              return {
-                "league": (e["strLeague"] ?? "بطولة").toString(),
-                "team1": (e["strHomeTeam"] ?? "فريق 1").toString(),
-                "team2": (e["strAwayTeam"] ?? "فريق 2").toString(),
-                "time": t.length >= 5 ? t.substring(0, 5) : "اليوم",
-                "score": hasScore ? "$h - $a" : "VS",
-                "channel": (e["strTVStation"] ?? "غير محددة").toString(),
-              };
-            }).toList();
-            isLoading = false;
-          });
-          return;
-        }
-      }
+        final events = decoded is Map ? decoded["events"] : null;
 
-      setState(() {
-        matches = fallbackMatches;
-        errorMessage = "تم عرض قائمة احتياطية";
-        isLoading = false;
-      });
+        if (events is List && events.isNotEmpty) {
+          final parsed = >[];
+
+          for (final ev in events) {
+            if (ev is! Map) continue;
+            final competitions = ev["competitions"];
+            if (competitions is! List || competitions.isEmpty) continue;
+            final comp = competitions.first;
+            if (comp is! Map) continue;
+
+            final competitors = comp["competitors"];
+            if (competitors is! List || competitors.length < 2) continue;
+
+            Map? homeTeam;
+            Map? awayTeam;
+            for (final c in competitors) {
+              if (c is Map) {
+                if (c["homeAway"] == "home") homeTeam = c;
+                if (c["homeAway"] == "away") awayTeam = c;
+              }
+            }
+            homeTeam ??= competitors[0] as Map;
+            awayTeam ??= competitors[1] as Map;
+
+            final homeName =
+                (homeTeam["team"]?["shortDisplayName"] ??
+                        homeTeam["team"]?["displayName"] ??
+                        "فريق 1")
+                    .toString();
+            final awayName =
+                (awayTeam["team"]?["shortDisplayName"] ??
+                        awayTeam["team"]?["displayName"] ??
+                        "فريق 2")
+                    .toString();
+
+            final homeScore = homeTeam["score"]?.toString();
+            final awayScore = awayTeam["score"]?.toString();
+            final statusObj = comp["status"] is Map ? comp["status"] : {};
+            final state = (statusObj["type"]?["state"] ?? "").toString();
+            final detail =
+                (statusObj["type"]?["shortDetail"] ?? "اليوم").toString();
+
+            final scoreText = (state == "pre" || homeScore == null || awayScore == null)
+                ? "VS"
+                : "$homeScore - $awayScore";
+
+            final leagueName =
+                (ev["league"]?["name"] ??
+                        decoded["leagues"]?[0]?["name"] ??
+                        "بطولة كرة قدم")
+                    .toString();
+
+            final broadcasts = comp["broadcasts"];
+            String channel = "غير محددة";
+            if (broadcasts is List && broadcasts.isNotEmpty) {
+              final names = broadcasts
+                  .map((b) => b is Map ? (b["names"] is List && b["names"].isNotEmpty ? b["names"][0].toString() : "") : "")
+                  .where((s) => s.toString().isNotEmpty)
+                  .toList();
+              if (names.isNotEmpty) channel = names.join(" / ");
+            }
+
+            parsed.add({
+              "league": leagueName,
+              "team1": homeName,
+              "team2": awayName,
+              "time": detail,
+              "score": scoreText,
+              "channel": channel,
+            });
+          }
+
+          if (parsed.isNotEmpty) {
+            setState(() {
+              matches = parsed;
+              isLiveSource = true;
+              statusBanner = "بيانات مباشرة (${parsed.length} مباراة اليوم)";
+              isLoading = false;
+            });
+            return;
+          }
+        }
+
+        setState(() {
+          matches = _fallbackMatches;
+          isLiveSource = false;
+          statusBanner = "المصدر المباشر رجّع 0 مباريات لليوم — عرض احتياطي";
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          matches = _fallbackMatches;
+          isLiveSource = false;
+          statusBanner =
+              "رمز استجابة السيرفر ${response.statusCode} — عرض احتياطي";
+          isLoading = false;
+        });
+      }
     } catch (e) {
       setState(() {
-        matches = fallbackMatches;
-        errorMessage = "تعذر الاتصال المباشر، تم عرض قائمة احتياطية";
+        matches = _fallbackMatches;
+        isLiveSource = false;
+        statusBanner = "تعذر الاتصال المباشر — عرض احتياطي";
         isLoading = false;
       });
     }
@@ -132,9 +208,36 @@ class _MatchesScreenState extends State<MatchesScreen> {
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(
               padding: const EdgeInsets.all(12),
-              itemCount: matches.length,
+              itemCount: matches.length + 1,
               itemBuilder: (context, index) {
-                final item = matches[index];
+                if (index == 0) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isLiveSource
+                          ? Colors.green.withOpacity(0.15)
+                          : Colors.amber.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isLiveSource
+                            ? Colors.green.withOpacity(0.5)
+                            : Colors.amber.withOpacity(0.5),
+                      ),
+                    ),
+                    child: Text(
+                      statusBanner,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: isLiveSource ? Colors.greenAccent : Colors.amber,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  );
+                }
+
+                final item = matches[index - 1];
                 return Card(
                   color: const Color(0xFF1E1E1E),
                   margin: const EdgeInsets.only(bottom: 12),
