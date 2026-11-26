@@ -70,7 +70,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
           return;
         }
 
-        final parsed = events.map>((e) {
+        final parsed = events.map((e) {
           final home = (e["strHomeTeam"] ?? "فريق 1").toString();
           final away = (e["strAwayTeam"] ?? "فريق 2").toString();
           final league = (e["strLeague"] ?? "بطولة").toString();
@@ -112,7 +112,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
                 ? "غير محددة"
                 : (e["strTVStation"] ?? "غير محددة").toString(),
           };
-        });
+        }).toList();
 
         setState(() {
           matches = parsed;
