@@ -34,16 +34,15 @@ class MatchesScreen extends StatefulWidget {
 
 class _MatchesScreenState extends State<MatchesScreen> {
   bool isLoading = true;
-  String? statusNote;
-  List> matches = [];
+  String? errorMessage;
+  List matches = [];
 
-  final List> _fallbackMatches = [
+  final List fallbackMatches = [
     {
       "league": "دوري نجوم العراق",
       "team1": "الزوراء",
       "team2": "الشرطة",
       "time": "19:30",
-      "status": "جارية",
       "score": "1 - 1",
       "channel": "العراقية الرياضية",
     },
@@ -52,17 +51,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
       "team1": "أرسنال",
       "team2": "ليفربول",
       "time": "21:00",
-      "status": "لم تبدأ",
       "score": "VS",
-      "channel": "beIN Sports 1",
-    },
-    {
-      "league": "الدوري الإسباني",
-      "team1": "ريال مدريد",
-      "team2": "برشلونة",
-      "time": "23:00",
-      "status": "انتهت",
-      "score": "2 - 1",
       "channel": "beIN Sports 1",
     },
   ];
@@ -70,75 +59,58 @@ class _MatchesScreenState extends State<MatchesScreen> {
   @override
   void initState() {
     super.initState();
-    fetchTodayMatches();
+    loadMatches();
   }
 
-  Future<void> fetchTodayMatches() async {
+  Future<void> loadMatches() async {
     setState(() {
       isLoading = true;
-      statusNote = null;
+      errorMessage = null;
     });
 
-    final now = DateTime.now();
-    final dateStr =
-        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-
-    final uri = Uri.parse(
-      "https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=$dateStr&s=Soccer",
-    );
-
     try {
-      final res = await http.get(uri).timeout(const Duration(seconds: 8));
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        final events = data is Map ? data["events"] : null;
+      final now = DateTime.now();
+      final date =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+      final url = Uri.parse(
+        "https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d=$date&s=Soccer",
+      );
 
+      final response = await http.get(url).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final events = decoded["events"];
         if (events is List && events.isNotEmpty) {
-          final list = >[];
-          for (final item in events) {
-            if (item is Map) {
-              final hScore = item["intHomeScore"]?.toString();
-              final aScore = item["intAwayScore"]?.toString();
-              final hasScore = hScore != null &&
-                  aScore != null &&
-                  hScore != "null" &&
-                  aScore != "null";
-              final rawTime = (item["strTime"] ?? "").toString();
-              final shortTime =
-                  rawTime.length >= 5 ? rawTime.substring(0, 5) : rawTime;
-              final tv = (item["strTVStation"] ?? "").toString().trim();
-
-              list.add({
-                "league": (item["strLeague"] ?? "بطولة").toString(),
-                "team1": (item["strHomeTeam"] ?? "فريق 1").toString(),
-                "team2": (item["strAwayTeam"] ?? "فريق 2").toString(),
-                "time": shortTime.isEmpty ? "اليوم" : shortTime,
-                "status": hasScore ? "انتهت" : "لم تبدأ",
-                "score": hasScore ? "$hScore - $aScore" : "VS",
-                "channel": (tv.isEmpty || tv == "null") ? "غير محددة" : tv,
-              });
-            }
-          }
-
-          if (list.isNotEmpty) {
-            setState(() {
-              matches = list;
-              isLoading = false;
-            });
-            return;
-          }
+          setState(() {
+            matches = events.map((e) {
+              final h = e["intHomeScore"]?.toString();
+              final a = e["intAwayScore"]?.toString();
+              final hasScore = h != null && a != null && h != "null" && a != "null";
+              final t = (e["strTime"] ?? "").toString();
+              return {
+                "league": (e["strLeague"] ?? "بطولة").toString(),
+                "team1": (e["strHomeTeam"] ?? "فريق 1").toString(),
+                "team2": (e["strAwayTeam"] ?? "فريق 2").toString(),
+                "time": t.length >= 5 ? t.substring(0, 5) : "اليوم",
+                "score": hasScore ? "$h - $a" : "VS",
+                "channel": (e["strTVStation"] ?? "غير محددة").toString(),
+              };
+            }).toList();
+            isLoading = false;
+          });
+          return;
         }
       }
 
       setState(() {
-        matches = _fallbackMatches;
-        statusNote = "عرض قائمة احتياطية (لا توجد مباريات مباشرة حالياً)";
+        matches = fallbackMatches;
+        errorMessage = "تم عرض قائمة احتياطية";
         isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
       setState(() {
-        matches = _fallbackMatches;
-        statusNote = "تعذر الوصول للمصدر المباشر، تم عرض قائمة احتياطية";
+        matches = fallbackMatches;
+        errorMessage = "تعذر الاتصال المباشر، تم عرض قائمة احتياطية";
         isLoading = false;
       });
     }
@@ -148,13 +120,10 @@ class _MatchesScreenState extends State<MatchesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text(
-          "مباريات اليوم - عالمية ومحلية",
-          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-        ),
+        title: const Text("مباريات اليوم"),
         actions: [
           IconButton(
-            onPressed: fetchTodayMatches,
+            onPressed: loadMatches,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -163,79 +132,40 @@ class _MatchesScreenState extends State<MatchesScreen> {
           ? const Center(child: CircularProgressIndicator())
           : ListView.builder(
               padding: const EdgeInsets.all(12),
-              itemCount: matches.length + (statusNote != null ? 1 : 0),
+              itemCount: matches.length,
               itemBuilder: (context, index) {
-                if (statusNote != null && index == 0) {
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.amber.withOpacity(0.5)),
-                    ),
-                    child: Text(
-                      statusNote!,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.amber, fontSize: 12),
-                    ),
-                  );
-                }
-
-                final m = matches[statusNote != null ? index - 1 : index];
+                final item = matches[index];
                 return Card(
                   color: const Color(0xFF1E1E1E),
                   margin: const EdgeInsets.only(bottom: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(14),
                     child: Column(
                       children: [
                         Text(
-                          m["league"]!,
-                          style: const TextStyle(
-                              color: Colors.amber, fontSize: 12),
+                          "${item["league"]}",
+                          style: const TextStyle(color: Colors.amber, fontSize: 12),
                         ),
-                        const SizedBox(height: 10),
+                        const SizedBox(height: 8),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Expanded(
                               child: Text(
-                                m["team1"]!,
+                                "${item["team1"]}",
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                     fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.black26,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    m["score"]!,
-                                    style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold),
-                                  ),
-                                  Text(
-                                    m["time"]!,
-                                    style: const TextStyle(
-                                        fontSize: 11, color: Colors.grey),
-                                  ),
-                                ],
-                              ),
+                            Text(
+                              "${item["score"]}\n${item["time"]}",
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(fontSize: 14),
                             ),
                             Expanded(
                               child: Text(
-                                m["team2"]!,
+                                "${item["team2"]}",
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                     fontSize: 16, fontWeight: FontWeight.bold),
@@ -243,11 +173,10 @@ class _MatchesScreenState extends State<MatchesScreen> {
                             ),
                           ],
                         ),
-                        const Divider(color: Colors.white12, height: 20),
+                        const SizedBox(height: 8),
                         Text(
-                          "القناة الناقلة: ${m["channel"]}",
-                          style: const TextStyle(
-                              color: Colors.white60, fontSize: 12),
+                          "القناة: ${item["channel"]}",
+                          style: const TextStyle(color: Colors.white60, fontSize: 12),
                         ),
                       ],
                     ),
