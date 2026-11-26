@@ -24,6 +24,9 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
+      - name: Refresh Android Gradle project
+        run: flutter create --platforms=android --project-name=iraq_sport .
+
       - name: Install dependencies
         run: flutter pub get
 
