@@ -93,10 +93,16 @@ class _MatchesScreenState extends State<MatchesScreen> {
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
-        final events = decoded is Map<String, dynamic> ? decoded["events"] : null;
+        final rawEvents =
+            decoded is Map<String, dynamic> ? decoded["events"] : null;
 
-        if (events is List && events.isNotEmpty) {
-          final parsed = events.map>((e) {
+        if (rawEvents is List && rawEvents.isNotEmpty) {
+          final List> parsed = [];
+
+          for (final item in rawEvents) {
+            if (item is! Map) continue;
+            final e = Map<String, dynamic>.from(item);
+
             final home = (e["strHomeTeam"] ?? "فريق 1").toString();
             final away = (e["strAwayTeam"] ?? "فريق 2").toString();
             final league = (e["strLeague"] ?? "بطولة").toString();
@@ -128,7 +134,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
 
             final tvRaw = (e["strTVStation"] ?? "").toString().trim();
 
-            return {
+            parsed.add({
               "league": league,
               "team1": home,
               "team2": away,
@@ -136,15 +142,17 @@ class _MatchesScreenState extends State<MatchesScreen> {
               "status": statusLabel,
               "score": scoreText,
               "channel": tvRaw.isEmpty || tvRaw == "null" ? "غير محددة" : tvRaw,
-            };
-          }).toList();
+            });
+          }
 
-          setState(() {
-            matches = parsed;
-            statusNote = null;
-            isLoading = false;
-          });
-          return;
+          if (parsed.isNotEmpty) {
+            setState(() {
+              matches = parsed;
+              statusNote = null;
+              isLoading = false;
+            });
+            return;
+          }
         }
       }
 
