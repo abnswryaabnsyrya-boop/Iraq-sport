@@ -97,7 +97,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
             decoded is Map<String, dynamic> ? decoded["events"] : null;
 
         if (rawEvents is List && rawEvents.isNotEmpty) {
-          final List> parsed = [];
+          final List> parsedMatches = [];
 
           for (final item in rawEvents) {
             if (item is! Map) continue;
@@ -134,7 +134,7 @@ class _MatchesScreenState extends State<MatchesScreen> {
 
             final tvRaw = (e["strTVStation"] ?? "").toString().trim();
 
-            parsed.add({
+            parsedMatches.add({
               "league": league,
               "team1": home,
               "team2": away,
@@ -145,9 +145,9 @@ class _MatchesScreenState extends State<MatchesScreen> {
             });
           }
 
-          if (parsed.isNotEmpty) {
+          if (parsedMatches.isNotEmpty) {
             setState(() {
-              matches = parsed;
+              matches = parsedMatches;
               statusNote = null;
               isLoading = false;
             });
