@@ -34,7 +34,7 @@ class MatchesScreen extends StatefulWidget {
 class _MatchesScreenState extends State<MatchesScreen> {
   bool isLoading = true;
   String? errorMessage;
-  List> matches = [];
+  List matches = [];
 
   @override
   void initState() {
